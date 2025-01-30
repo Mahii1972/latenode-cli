@@ -17,6 +17,35 @@ struct ChatRequest {
     context: Vec<Message>,
 }
 
+fn read_multiline_input() -> String {
+    let mut buffer = String::new();
+    let stdin = io::stdin();
+    let mut stdout = io::stdout();
+    let mut lines = Vec::new();
+    
+    loop {
+        print!("{} ", ">>>".bright_blue());
+        stdout.flush().unwrap();
+        
+        buffer.clear();
+        stdin.lock().read_line(&mut buffer).unwrap();
+        
+        let line = buffer.trim();
+        
+        if line == "/send" {
+            break;
+        }
+        
+        if line == "/exit" {
+            return "/exit".to_string();
+        }
+        
+        lines.push(line.to_string());
+    }
+    
+    lines.join("\n")
+}
+
 fn format_code_blocks(text: &str) -> String {
     let mut formatted = String::new();
     let mut in_code_block = false;
@@ -25,25 +54,15 @@ fn format_code_blocks(text: &str) -> String {
     while let Some(line) = lines.next() {
         if line.contains("```") {
             if !in_code_block {
-                // Start of code block
                 in_code_block = true;
                 formatted.push_str(&format!("{}\n", "=".repeat(80).bright_blue()));
-                // Skip the language identifier line
-                if let Some(next_line) = lines.next() {
-                    if !next_line.contains("```") {
-                        formatted.push_str(&format!("{}\n", next_line.bright_yellow()));
-                    }
-                }
             } else {
-                // End of code block
                 in_code_block = false;
                 formatted.push_str(&format!("{}\n", "=".repeat(80).bright_blue()));
             }
         } else if in_code_block {
-            // Inside code block - format with different color
             formatted.push_str(&format!("{}\n", line.bright_yellow()));
         } else {
-            // Regular text
             formatted.push_str(&format!("{}\n", line));
         }
     }
@@ -77,19 +96,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("WEBHOOK_URL must be set in environment variables");
 
     println!("{}", "\nWelcome to Latenode CLI!".bright_green());
+    println!("Type '/send' to submit your input");
     println!("Type '/exit' to end the session\n");
 
     let mut context = Vec::new();
-    let stdin = io::stdin();
-    let mut stdout = io::stdout();
 
     loop {
-        print!("{} ", ">>>".bright_blue());
-        stdout.flush().unwrap();
-
-        let mut input = String::new();
-        stdin.lock().read_line(&mut input).unwrap();
-        let input = input.trim();
+        let input = read_multiline_input();
 
         if input == "/exit" {
             println!("{}", "\nExiting...".bright_yellow());
@@ -100,19 +113,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
 
-        // Add user message to context
         context.push(Message {
             role: "user".to_string(),
-            content: input.to_string(),
+            content: input.clone(),
         });
 
-        match send_chat_request(&webhook_url, input.to_string(), context.clone()).await {
+
+        match send_chat_request(&webhook_url, input, context.clone()).await {
             Ok(response) => {
                 print!("{} ", "$".bright_green());
-                // Format and print the response with code block highlighting
                 println!("{}", format_code_blocks(&response));
 
-                // Add assistant response to context
                 context.push(Message {
                     role: "assistant".to_string(),
                     content: response,
