@@ -4,6 +4,10 @@ use reqwest;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::io::{self, Write, BufRead};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct Message {
@@ -15,6 +19,48 @@ struct Message {
 struct ChatRequest {
     question: String,
     context: Vec<Message>,
+}
+
+struct Spinner {
+    active: Arc<AtomicBool>,
+    handle: Option<thread::JoinHandle<()>>,
+}
+
+impl Spinner {
+    fn new() -> Self {
+        Spinner {
+            active: Arc::new(AtomicBool::new(false)),
+            handle: None,
+        }
+    }
+
+    fn start(&mut self) {
+        self.active.store(true, Ordering::SeqCst);
+        let active = self.active.clone();
+        
+        self.handle = Some(thread::spawn(move || {
+            let spinner_chars = vec!["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+            let mut i = 0;
+            
+            while active.load(Ordering::SeqCst) {
+                print!("\r{} Thinking...", spinner_chars[i].bright_blue());
+                io::stdout().flush().unwrap();
+                thread::sleep(Duration::from_millis(80));
+                i = (i + 1) % spinner_chars.len();
+            }
+            print!("\r");
+            io::stdout().flush().unwrap();
+        }));
+    }
+
+    fn stop(&mut self) {
+        self.active.store(false, Ordering::SeqCst);
+        if let Some(handle) = self.handle.take() {
+            handle.join().unwrap();
+        }
+        print!("\r");
+        io::stdout().flush().unwrap();
+    }
 }
 
 fn read_multiline_input() -> String {
@@ -100,6 +146,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Type '/exit' to end the session\n");
 
     let mut context = Vec::new();
+    let mut spinner = Spinner::new();
 
     loop {
         let input = read_multiline_input();
@@ -118,9 +165,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             content: input.clone(),
         });
 
-
+        spinner.start();
+        
         match send_chat_request(&webhook_url, input, context.clone()).await {
             Ok(response) => {
+                spinner.stop();
                 print!("{} ", "$".bright_green());
                 println!("{}", format_code_blocks(&response));
 
@@ -130,6 +179,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 });
             }
             Err(e) => {
+                spinner.stop();
                 println!("{} {}", "Error:".bright_red(), e);
             }
         }
