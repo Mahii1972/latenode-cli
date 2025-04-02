@@ -19,6 +19,7 @@ struct Message {
 struct ChatRequest {
     question: String,
     context: Vec<Message>,
+    model: String,
 }
 
 struct Spinner {
@@ -119,9 +120,10 @@ async fn send_chat_request(
     webhook_url: &str,
     question: String,
     context: Vec<Message>,
+    model: String,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
-    let request = ChatRequest { question, context };
+    let request = ChatRequest { question, context, model };
 
     let response = client
         .post(webhook_url)
@@ -134,6 +136,29 @@ async fn send_chat_request(
     Ok(response)
 }
 
+fn select_model() -> String {
+    loop {
+        println!("\n{}", "Select a model:".bright_blue());
+        println!("1. Claude-3.5-sonnet");
+        println!("2. o3-mini");
+        println!("3. Claude-3.7-sonnet");
+        println!("4. Claude-3.7-sonnet-thinking");
+        print!("{} ", ">>>".bright_blue());
+        io::stdout().flush().unwrap();
+
+        let mut input = String::new();
+        io::stdin().lock().read_line(&mut input).unwrap();
+        
+        match input.trim() {
+            "1" => return "claude-3.5-sonnet".to_string(),
+            "2" => return "o3-mini".to_string(),
+            "3" => return "claude-3.7-sonnet".to_string(),
+            "4" => return "claude-3.7-sonnet-thinking".to_string(),
+            _ => println!("{}", "Invalid selection. Please choose 1, 2, 3, or 4.".bright_red()),
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
@@ -142,7 +167,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("WEBHOOK_URL must be set in environment variables");
 
     println!("{}", "\nWelcome to Latenode CLI!".bright_green());
-    println!("Type '/send' to submit your input");
+    
+    let model = select_model();
+    println!("{} {}", "\nUsing model:".bright_blue(), model);
+    println!("\nType '/send' to submit your input");
     println!("Type '/exit' to end the session\n");
 
     let mut context = Vec::new();
@@ -167,7 +195,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         spinner.start();
         
-        match send_chat_request(&webhook_url, input, context.clone()).await {
+        match send_chat_request(&webhook_url, input, context.clone(), model.clone()).await {
             Ok(response) => {
                 spinner.stop();
                 print!("{} ", "$".bright_green());
